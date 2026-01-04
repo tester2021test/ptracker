@@ -1,13 +1,12 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import QRCode from 'https://esm.sh/qrcode';
 import { 
   Calculator, FileText, CheckCircle2, Wallet, 
   Building2, Landmark, Save, Plus, Trash2, Calendar, 
   PieChart, Key, Edit2, X, ChevronRight, TrendingUp,
   UploadCloud, AlertCircle, Download, CreditCard,
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
-  LogOut, Lock, Mail, Loader2, ShieldCheck, ScanLine
+  LogOut, Lock, Mail, Loader2
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -108,18 +107,12 @@ const AnnualSpendChart = ({ data }) => {
   );
 };
 
-// --- AUTH PAGE (LOGIN & MFA) ---
+// --- AUTH PAGE (LOGIN ONLY) ---
 const AuthPage = () => {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
-  
-  // MFA States: 'login' | 'enroll' | 'verify'
-  const [authStep, setAuthStep] = useState('login'); 
-  const [factorId, setFactorId] = useState(null);
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
-  const [mfaCode, setMfaCode] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -129,34 +122,7 @@ const AuthPage = () => {
     try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-
-        // Check for existing MFA factors
-        const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
-        if (factorsError) throw factorsError;
-
-        const verifiedFactor = factors.totp.find(f => f.status === 'verified');
-        
-        if (verifiedFactor) {
-            // User has MFA, prompt for verification
-            setFactorId(verifiedFactor.id);
-            setAuthStep('verify');
-        } else {
-            // User needs to enroll in MFA (Required as per request)
-            const { data: enrollData, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
-            if (enrollError) throw enrollError;
-            
-            setFactorId(enrollData.id);
-            
-            // Generate QR Code
-            try {
-                const url = await QRCode.toDataURL(enrollData.totp.uri);
-                setQrCodeUrl(url);
-                setAuthStep('enroll');
-            } catch (qrErr) {
-                console.error(qrErr);
-                setMessage("Could not generate QR. Please check console.");
-            }
-        }
+        // Success: Auth state listener in main component will handle redirection
     } catch (error) {
         setMessage(error.message);
     } finally {
@@ -164,102 +130,37 @@ const AuthPage = () => {
     }
   };
 
-  const handleMfaVerify = async (e) => {
-      e.preventDefault();
-      setLoading(true);
-      setMessage('');
-
-      try {
-          // 1. Verify the code
-          const { data, error } = await supabase.auth.mfa.challengeAndVerify({
-              factorId,
-              code: mfaCode
-          });
-          
-          if (error) throw error;
-
-          // 2. CRITICAL: Refresh the session immediately to upgrade assurance level to AAL2
-          // This ensures onAuthStateChange in parent picks up the new status
-          const { error: refreshError } = await supabase.auth.refreshSession();
-          if (refreshError) throw refreshError;
-
-      } catch (error) {
-          setMessage(error.message || "Invalid Code");
-      } finally {
-          setLoading(false);
-      }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
            <div className="text-center mb-8">
                <div className="inline-flex p-3 rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-200 mb-4">
-                   {authStep === 'login' ? <Calculator className="w-8 h-8" /> : <ShieldCheck className="w-8 h-8" />}
+                   <Calculator className="w-8 h-8" />
                </div>
-               <h1 className="text-2xl font-bold text-slate-800">
-                   {authStep === 'login' ? 'Property Tracker' : authStep === 'enroll' ? 'Setup 2FA' : 'Verify Identity'}
-               </h1>
-               <p className="text-slate-500 text-sm mt-1">
-                   {authStep === 'login' ? 'Secure Login for Supabase Users' : 
-                    authStep === 'enroll' ? 'Scan this QR code with your authenticator app' : 
-                    'Enter the code from your authenticator app'}
-               </p>
+               <h1 className="text-2xl font-bold text-slate-800">Property Tracker</h1>
+               <p className="text-slate-500 text-sm mt-1">Secure Login</p>
            </div>
            
-           {authStep === 'login' && (
-               <form onSubmit={handleLogin} className="space-y-4">
-                   <div>
-                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Email</label>
-                       <div className="relative">
-                           <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                           <input type="email" required className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={email} onChange={e => setEmail(e.target.value)} />
-                       </div>
+           <form onSubmit={handleLogin} className="space-y-4">
+               <div>
+                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Email</label>
+                   <div className="relative">
+                       <Mail className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                       <input type="email" required className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={email} onChange={e => setEmail(e.target.value)} />
                    </div>
-                   <div>
-                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Password</label>
-                       <div className="relative">
-                           <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                           <input type="password" required className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={password} onChange={e => setPassword(e.target.value)} />
-                       </div>
+               </div>
+               <div>
+                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Password</label>
+                   <div className="relative">
+                       <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                       <input type="password" required className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500" value={password} onChange={e => setPassword(e.target.value)} />
                    </div>
-                   {message && <div className="p-3 rounded-xl text-xs bg-red-50 text-red-700">{message}</div>}
-                   <button disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-indigo-200 flex justify-center items-center gap-2">
-                       {loading && <Loader2 className="w-4 h-4 animate-spin" />} Login
-                   </button>
-               </form>
-           )}
-
-           {(authStep === 'enroll' || authStep === 'verify') && (
-               <form onSubmit={handleMfaVerify} className="space-y-6">
-                   {authStep === 'enroll' && qrCodeUrl && (
-                       <div className="flex justify-center bg-slate-50 p-4 rounded-xl border border-slate-100">
-                           <img src={qrCodeUrl} alt="MFA QR Code" className="w-48 h-48 mix-blend-multiply" />
-                       </div>
-                   )}
-                   
-                   <div>
-                       <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1 block">Authentication Code</label>
-                       <div className="relative">
-                           <ScanLine className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                           <input 
-                            type="text" placeholder="123456" maxLength={6} required autoFocus
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 tracking-widest font-mono" 
-                            value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/[^0-9]/g, ''))} 
-                           />
-                       </div>
-                   </div>
-
-                   {message && <div className="p-3 rounded-xl text-xs bg-red-50 text-red-700">{message}</div>}
-
-                   <button disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-indigo-200 flex justify-center items-center gap-2">
-                       {loading && <Loader2 className="w-4 h-4 animate-spin" />} 
-                       {authStep === 'enroll' ? 'Verify & Enable' : 'Verify Login'}
-                   </button>
-                   
-                   <button type="button" onClick={() => setAuthStep('login')} className="w-full text-xs text-slate-400 hover:text-slate-600">Back to Login</button>
-               </form>
-           )}
+               </div>
+               {message && <div className="p-3 rounded-xl text-xs bg-red-50 text-red-700">{message}</div>}
+               <button disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-indigo-200 flex justify-center items-center gap-2">
+                   {loading && <Loader2 className="w-4 h-4 animate-spin" />} Login
+               </button>
+           </form>
        </div>
     </div>
   );
@@ -270,7 +171,6 @@ const AuthPage = () => {
 const PaymentPlanDashboard = () => {
   // --- Auth State ---
   const [session, setSession] = useState(null);
-  const [isMfaChecked, setIsMfaChecked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // --- App State ---
@@ -306,37 +206,15 @@ const PaymentPlanDashboard = () => {
   const CORPUS_FUND = 103000;
 
   useEffect(() => {
-    // Check active session & MFA status
-    const checkSession = async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-            // Check if MFA is verified (AAL2)
-            const { data: { level } } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-            if (level === 'aal2') {
-                setSession(session);
-                setIsMfaChecked(true);
-            }
-        }
-        setLoading(false);
-    };
-    checkSession();
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
-          // Whenever auth state changes, verify level again
-          const { data: { level } } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-          if (level === 'aal2') {
-              setSession(session);
-              setIsMfaChecked(true);
-          } else {
-              // If session exists but not AAL2 (e.g. initial login before MFA code), handle in AuthPage
-              setSession(null);
-              setIsMfaChecked(false);
-          }
-      } else {
-          setSession(null);
-          setIsMfaChecked(false);
-      }
+      setSession(session);
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -651,7 +529,7 @@ const PaymentPlanDashboard = () => {
 
   // --- RENDER ---
   if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
-  if (!session || !isMfaChecked) return <AuthPage />;
+  if (!session) return <AuthPage />;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 md:pb-8 print:bg-white print:pb-0">
