@@ -5,6 +5,6 @@ import react from '@vitejs/plugin-react'
 // Example: If your repo is [https://github.com/username/my-sec-app](https://github.com/username/my-sec-app), use '/my-sec-app/'
 export default defineConfig({
   plugins: [react()],
-  base: '/bpp/', 
+  base: '/ptracker/', 
 })
 

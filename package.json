@@ -1,8 +1,8 @@
 {
-  "name": "bpp",
+  "name": "ptracker",
   "private": true,
   "version": "0.0.0",
-  "homepage": "https://tester2021test.github.io/bpp/",
+  "homepage": "https://tester2021test.github.io/ptracker/",
   "type": "module",
   "scripts": {
     "dev": "vite",
