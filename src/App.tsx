@@ -169,7 +169,7 @@ const AuthPage = () => {
 
 
 // --- MAIN APP ---
-const PaymentPlanDashboard = () => {
+const App = () => {
   // --- Auth State ---
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -709,6 +709,25 @@ const PaymentPlanDashboard = () => {
     bankTransactions.sort((a,b) => new Date(a.date || a.transaction_date) - new Date(b.date || b.transaction_date)).forEach(tx => {
         rows.push([ "TRANSACTION", tx.type, tx.amount, formatDate(tx.transaction_date || tx.date), tx.notes || "" ]);
     });
+    
+    // --- Added Bank Amortization Section ---
+    if (bankEntries.length > 0) {
+        rows.push([]);
+        rows.push(["BANK AMORTIZATION", "Date", "Type", "Amount/EMI", "Interest", "Principal", "Balance", "ROI"]);
+        bankEntries.forEach(row => {
+            rows.push([
+                "AMORTIZATION",
+                formatDate(row.date),
+                row.type === 'disb' ? 'Disbursement' : 'EMI',
+                row.type === 'disb' ? row.amount : (row.emi || row.amount),
+                row.interest || 0,
+                row.principal || 0,
+                row.balance || 0,
+                row.roi || 0
+            ]);
+        });
+    }
+
     const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -842,6 +861,56 @@ const PaymentPlanDashboard = () => {
                   </div>
               </div>
           </div>
+
+          {/* --- Bank Amortization Section for Print --- */}
+          {bankEntries.length > 0 && (
+             <div className="mt-8">
+                 <h2 className="text-lg font-bold border-l-4 border-indigo-600 pl-3 mb-4 text-slate-800 break-before-page">Bank Amortization Schedule</h2>
+                 <div className="grid grid-cols-4 gap-4 mb-4 text-xs">
+                    <div className="p-2 border border-slate-200 rounded bg-slate-50">
+                        <span className="block text-slate-400 uppercase font-bold text-[10px]">Current EMI</span>
+                        <span className="font-bold text-slate-800">{formatCurrency(bankSummary.currentEMI)}</span>
+                    </div>
+                    <div className="p-2 border border-slate-200 rounded bg-slate-50">
+                        <span className="block text-slate-400 uppercase font-bold text-[10px]">Projected EMI</span>
+                        <span className="font-bold text-slate-800">{formatCurrency(bankSummary.projectedEMI)}</span>
+                    </div>
+                    <div className="p-2 border border-slate-200 rounded bg-slate-50">
+                        <span className="block text-slate-400 uppercase font-bold text-[10px]">Current ROI</span>
+                        <span className="font-bold text-slate-800">{bankSummary.currentROI}%</span>
+                    </div>
+                    <div className="p-2 border border-slate-200 rounded bg-slate-50">
+                        <span className="block text-slate-400 uppercase font-bold text-[10px]">Tenure End</span>
+                        <span className="font-bold text-slate-800">{bankSummary.tenureEnd}</span>
+                    </div>
+                 </div>
+                 
+                 <table className="w-full text-left text-[10px] border border-slate-200">
+                     <thead className="bg-slate-100">
+                         <tr>
+                             <th className="p-1.5 border-r border-slate-200 font-semibold text-slate-700">Date</th>
+                             <th className="p-1.5 border-r border-slate-200 font-semibold text-slate-700">Type</th>
+                             <th className="p-1.5 border-r border-slate-200 text-right font-semibold text-slate-700">Amount</th>
+                             <th className="p-1.5 border-r border-slate-200 text-right font-semibold text-slate-700">Interest</th>
+                             <th className="p-1.5 border-r border-slate-200 text-right font-semibold text-slate-700">Principal</th>
+                             <th className="p-1.5 text-right font-semibold text-slate-700">Balance</th>
+                         </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                         {bankEntries.map((row, i) => (
+                             <tr key={i} className={row.type === 'disb' ? 'bg-blue-50/50' : ''}>
+                                 <td className="p-1.5 border-r border-slate-200 text-slate-600">{formatDate(row.date)}</td>
+                                 <td className="p-1.5 border-r border-slate-200 capitalize text-slate-600">{row.type === 'disb' ? 'Disb.' : 'EMI'}</td>
+                                 <td className="p-1.5 border-r border-slate-200 text-right font-mono text-slate-800">{formatCurrency(row.type === 'disb' ? row.amount : (row.emi || row.amount))}</td>
+                                 <td className="p-1.5 border-r border-slate-200 text-right text-slate-500">{row.interest ? formatCurrency(row.interest) : '-'}</td>
+                                 <td className="p-1.5 border-r border-slate-200 text-right text-slate-500">{row.principal ? formatCurrency(row.principal) : '-'}</td>
+                                 <td className="p-1.5 text-right font-mono text-slate-700">{row.balance ? formatCurrency(row.balance) : '-'}</td>
+                             </tr>
+                         ))}
+                     </tbody>
+                 </table>
+             </div>
+          )}
       </div>
 
       {/* Header */}
@@ -1428,4 +1497,4 @@ const PaymentPlanDashboard = () => {
   );
 };
 
-export default PaymentPlanDashboard;
+export default App;
