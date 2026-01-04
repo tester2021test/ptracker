@@ -8,7 +8,8 @@ import {
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
   LogOut, Lock, Mail, Loader2, Menu, TrendingDown,
   ArrowRightCircle, FileUp, FileInput, Percent,
-  Home, DollarSign, GripHorizontal, Activity
+  Home, DollarSign, GripHorizontal, Activity, Layers,
+  Zap, Clock
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -56,6 +57,34 @@ const BentoCard = ({ title, value, subtext, icon: Icon, variant = "default", onC
       {Icon && <Icon className="absolute -bottom-4 -right-4 w-24 h-24 opacity-[0.05] pointer-events-none" />}
     </div>
   );
+};
+
+// Comparison Bar Component for Illustration
+const ComparisonBar = ({ label, original, current, unit = "", color = "bg-indigo-500" }) => {
+    const maxVal = Math.max(original, current);
+    const originalPercent = (original / maxVal) * 100;
+    const currentPercent = (current / maxVal) * 100;
+    
+    return (
+        <div className="space-y-2">
+            <div className="flex justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
+                <span>{label}</span>
+                {original > current && <span className="text-emerald-600">Saved: {unit === '₹' ? formatCurrency(original - current) : (original - current).toFixed(0) + ' ' + unit}</span>}
+            </div>
+            <div className="space-y-1">
+                {/* Original Bar */}
+                <div className="relative h-6 bg-slate-100 rounded-md overflow-hidden flex items-center">
+                    <div style={{ width: `${originalPercent}%` }} className="absolute h-full bg-slate-300 rounded-r-md"></div>
+                    <span className="relative z-10 text-[10px] font-bold text-slate-600 pl-2">Current: {unit === '₹' ? formatCurrency(original) : original.toFixed(0) + ' ' + unit}</span>
+                </div>
+                {/* New Bar */}
+                <div className="relative h-6 bg-slate-50 rounded-md overflow-hidden flex items-center">
+                    <div style={{ width: `${currentPercent}%` }} className={`absolute h-full ${color} rounded-r-md transition-all duration-500 ease-out`}></div>
+                    <span className={`relative z-10 text-[10px] font-bold pl-2 ${currentPercent > 50 ? 'text-white' : 'text-slate-800'}`}>New: {unit === '₹' ? formatCurrency(current) : current.toFixed(0) + ' ' + unit}</span>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 // New Breakdown Card Component for Taxes/Charges
@@ -296,6 +325,8 @@ const App = () => {
   const [activeTab, setActiveTab] = useState('schedule');
   const [carpetArea, setCarpetArea] = useState('');
   const [prepaymentAmount, setPrepaymentAmount] = useState('');
+  const [stepUpPercentage, setStepUpPercentage] = useState('');
+  const [simulatorMode, setSimulatorMode] = useState('lumpsum'); // 'lumpsum' or 'stepup'
   const [docsList, setDocsList] = useState([
     { id: 'allotment', label: 'Allotment Letter', status: 'pending' },
     { id: 'agreement', label: 'Registered Agreement', status: 'pending' },
@@ -366,27 +397,85 @@ const App = () => {
       };
   }, [bankEntries]);
 
-  const prepaymentStats = useMemo(() => {
+  // Prepayment & Step-Up Logic
+  const simulatorStats = useMemo(() => {
     const P = bankSummary.currentPrincipal;
-    const r = (bankSummary.currentROI / 100) / 12;
-    const emi = bankSummary.currentEMI;
-    const prepay = parseFloat(prepaymentAmount) || 0;
-    if (P <= 0 || r <= 0 || emi <= 0 || prepay <= 0 || prepay >= P) return null;
-    const calcMonths = (principal) => {
-        if (principal * r >= emi) return Infinity; 
-        return -Math.log(1 - (principal * r) / emi) / Math.log(1 + r);
-    };
-    const monthsOriginal = calcMonths(P);
-    const monthsNew = calcMonths(P - prepay);
-    if (monthsOriginal === Infinity || monthsNew === Infinity) return null;
-    const interestOriginal = (monthsOriginal * emi) - P;
-    const interestNew = (monthsNew * emi) - (P - prepay);
+    const annualRate = bankSummary.currentROI;
+    const currentEMI = bankSummary.currentEMI;
+    
+    if (P <= 0 || annualRate <= 0 || currentEMI <= 0) return null;
+    
+    const r = annualRate / 100 / 12;
+
+    // 1. Calculate Original Baseline
+    let monthsOriginal = 0;
+    if (P * r >= currentEMI) return null; // Interest > EMI, infinite loan
+    monthsOriginal = -Math.log(1 - (P * r) / currentEMI) / Math.log(1 + r);
+    const interestOriginal = (monthsOriginal * currentEMI) - P;
+
+    // 2. Simulator Logic
+    let monthsNew = 0;
+    let totalInterestNew = 0;
+    
+    if (simulatorMode === 'lumpsum') {
+        const prepay = parseFloat(prepaymentAmount) || 0;
+        if (prepay <= 0 || prepay >= P) return {
+            originalInterest: interestOriginal,
+            newInterest: interestOriginal, // No change or invalid
+            originalTenure: monthsOriginal,
+            newTenure: monthsOriginal
+        };
+        
+        // New calculation with reduced principal
+        monthsNew = -Math.log(1 - ((P - prepay) * r) / currentEMI) / Math.log(1 + r);
+        totalInterestNew = (monthsNew * currentEMI) - (P - prepay);
+
+    } else { // Step-Up Mode
+        const stepUp = parseFloat(stepUpPercentage) || 0;
+        
+        let balance = P;
+        let emi = currentEMI;
+        let months = 0;
+        
+        // If stepUp is 0, it's just the original plan
+        if (stepUp <= 0) {
+             monthsNew = monthsOriginal;
+             totalInterestNew = interestOriginal;
+        } else {
+            while (balance > 0 && months < 600) { // Safety cap 50 years
+                const interest = balance * r;
+                let principal = emi - interest;
+                
+                if (principal <= 0) break; // Infinite loop protection
+
+                if (balance < principal) {
+                    totalInterestNew += (balance * r); // Approx interest for last partial month
+                    months++;
+                    balance = 0;
+                    break;
+                }
+
+                balance -= principal;
+                totalInterestNew += interest;
+                months++;
+
+                if (months % 12 === 0) {
+                    emi = emi * (1 + stepUp / 100);
+                }
+            }
+            monthsNew = months;
+        }
+    }
+
+    if (monthsNew === 0 || monthsNew === Infinity) return null;
+
     return {
-        savedInterest: Math.max(0, interestOriginal - interestNew),
-        monthsSaved: Math.max(0, monthsOriginal - monthsNew),
-        newTenureMonths: monthsNew
+        originalInterest: interestOriginal,
+        newInterest: Math.max(0, totalInterestNew),
+        originalTenure: monthsOriginal,
+        newTenure: monthsNew
     };
-  }, [bankSummary, prepaymentAmount]);
+  }, [bankSummary, prepaymentAmount, stepUpPercentage, simulatorMode]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setLoading(false); });
@@ -1172,34 +1261,92 @@ const App = () => {
                             <button onClick={handleDeleteAllBankEntries} className="text-xs bg-rose-50 text-rose-600 px-4 py-2 rounded-full font-bold hover:bg-rose-100 transition-colors">Clear All</button>
                         </div>
                     </div>
-                    {/* Prepayment Calculator within Bank Tab */}
+                    {/* NEW: Loan Impact Simulator */}
                     <div className="p-6 bg-slate-50 border-b border-slate-100">
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-lg"><Percent className="w-4 h-4" /></div>
-                            <span className="text-xs font-bold uppercase text-slate-500">Prepayment Simulator</span>
-                        </div>
-                        <div className="flex flex-col md:flex-row gap-4 items-end">
-                            <div className="flex-1 w-full">
-                                <input 
-                                    type="number" 
-                                    placeholder="Enter Lumpsum Amount (e.g. 500000)" 
-                                    className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    value={prepaymentAmount}
-                                    onChange={(e) => setPrepaymentAmount(e.target.value)}
-                                />
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-indigo-100 text-indigo-600 rounded-lg"><Activity className="w-4 h-4" /></div>
+                                <span className="text-xs font-bold uppercase text-slate-500">Impact Simulator</span>
                             </div>
-                            {prepaymentStats && (
-                                <div className="flex gap-4 w-full md:w-auto">
-                                    <div className="px-4 py-2 bg-emerald-100 text-emerald-800 rounded-xl">
-                                        <div className="text-[10px] font-bold uppercase opacity-60">Save Interest</div>
-                                        <div className="font-bold">{formatCurrency(prepaymentStats.savedInterest)}</div>
+                            {/* Simulator Mode Tab Switcher */}
+                            <div className="flex bg-slate-200 p-1 rounded-lg">
+                                <button 
+                                    onClick={() => setSimulatorMode('lumpsum')} 
+                                    className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${simulatorMode === 'lumpsum' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    <Zap className="w-3 h-3" /> Lumpsum
+                                </button>
+                                <button 
+                                    onClick={() => setSimulatorMode('stepup')} 
+                                    className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-2 ${simulatorMode === 'stepup' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    <TrendingUp className="w-3 h-3" /> Step-Up
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col lg:flex-row gap-8">
+                            {/* Input Area */}
+                            <div className="flex-1 space-y-4">
+                                {simulatorMode === 'lumpsum' ? (
+                                    <div className="space-y-2 animate-in fade-in">
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">One-time Payment</label>
+                                        <div className="relative">
+                                            <span className="absolute left-4 top-3.5 text-slate-400 font-bold">₹</span>
+                                            <input 
+                                                type="number" 
+                                                placeholder="e.g. 100000" 
+                                                className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-semibold text-slate-700"
+                                                value={prepaymentAmount}
+                                                onChange={(e) => setPrepaymentAmount(e.target.value)}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 ml-1">Calculate impact of paying reduced principal today.</p>
                                     </div>
-                                    <div className="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-xl">
-                                        <div className="text-[10px] font-bold uppercase opacity-60">Save Time</div>
-                                        <div className="font-bold">{Math.floor(prepaymentStats.monthsSaved)}m</div>
+                                ) : (
+                                    <div className="space-y-2 animate-in fade-in">
+                                        <label className="text-[10px] uppercase font-bold text-slate-400 ml-1">Annual EMI Increase</label>
+                                        <div className="relative">
+                                            <input 
+                                                type="number" 
+                                                placeholder="e.g. 5 or 10" 
+                                                className="w-full pl-4 pr-8 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-semibold text-slate-700"
+                                                value={stepUpPercentage}
+                                                onChange={(e) => setStepUpPercentage(e.target.value)}
+                                            />
+                                            <span className="absolute right-4 top-3.5 text-slate-400 font-bold">%</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 ml-1">Simulates increasing your EMI by {stepUpPercentage || 'X'}% every year.</p>
                                     </div>
-                                </div>
-                            )}
+                                )}
+                            </div>
+                            
+                            {/* Visual Illustration Area */}
+                            <div className="flex-[1.5] bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+                                {simulatorStats ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 animate-in slide-in-from-right-4 duration-500">
+                                        <ComparisonBar 
+                                            label="Total Interest" 
+                                            original={simulatorStats.originalInterest} 
+                                            current={simulatorStats.newInterest} 
+                                            unit="₹"
+                                            color="bg-emerald-500"
+                                        />
+                                        <ComparisonBar 
+                                            label="Loan Tenure" 
+                                            original={simulatorStats.originalTenure} 
+                                            current={simulatorStats.newTenure} 
+                                            unit="months"
+                                            color="bg-indigo-500"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                                        <div className="bg-slate-50 p-3 rounded-full mb-2"><Activity className="w-5 h-5 text-slate-300" /></div>
+                                        <p className="text-xs text-slate-400">Enter details to see the impact on your loan.</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 
