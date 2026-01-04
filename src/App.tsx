@@ -8,7 +8,7 @@ import {
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
   LogOut, Lock, Mail, Loader2, Menu, TrendingDown,
   ArrowRightCircle, FileUp, FileInput, Percent,
-  Home, DollarSign, GripHorizontal
+  Home, DollarSign, GripHorizontal, Activity
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -203,34 +203,27 @@ const DonutChart = ({ data, size = 120 }) => {
     );
 };
 
-const AnnualSpendChart = ({ data }) => {
-  if (!data || data.length === 0) return (<div className="w-full h-40 flex items-center justify-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">Add EMI transactions to see the trend</div>);
-  const maxVal = Math.max(...data.map(d => d.value));
-  const yMax = maxVal * 1.15;
+// New Annual Summary Component (Replaces Graph)
+const YearlyBreakdown = ({ data }) => {
+  if (!data || data.length === 0) return (
+    <div className="w-full h-40 flex items-center justify-center text-xs text-slate-400 bg-white rounded-[2rem] border border-slate-100">
+        No payment history found
+    </div>
+  );
+
   return (
-    <div className="w-full h-48 flex flex-col justify-end pt-4 pb-2 relative">
-       <div className="absolute inset-x-0 top-4 bottom-8 flex flex-col justify-between pointer-events-none">
-          {[1, 0.66, 0.33, 0].map((tick, i) => (
-             <div key={i} className="border-t border-dashed border-slate-100 w-full h-0 relative">
-                {tick > 0 && <span className="absolute -top-2.5 right-0 text-[9px] text-slate-300 bg-white pl-1">{new Intl.NumberFormat('en-IN', { notation: "compact", maximumFractionDigits: 1 }).format(maxVal * tick)}</span>}
-             </div>
-          ))}
-       </div>
-       <div className="flex items-end justify-around h-full z-10 px-2 gap-2 overflow-x-auto">
-          {data.map((item, i) => {
-             const height = (item.value / yMax) * 100;
-             return (
-               <div key={i} className="flex flex-col items-center justify-end h-full flex-1 group relative min-w-[30px]">
-                  <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 transform translate-y-2 group-hover:translate-y-0 bg-slate-800 text-white text-[10px] py-1 px-2 rounded-lg shadow-xl whitespace-nowrap z-20 pointer-events-none">
-                     {item.formattedValue}
-                     <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-800"></div>
-                  </div>
-                  <div className="w-full max-w-[40px] bg-indigo-500 rounded-t-md relative hover:bg-indigo-600 transition-all duration-500 ease-out group-hover:shadow-[0_0_15px_rgba(99,102,241,0.3)]" style={{ height: `${Math.max(height, 2)}%` }}></div>
-                  <div className="mt-2 text-[10px] text-slate-500 font-medium whitespace-nowrap rotate-0 md:rotate-0 sm:-rotate-45 origin-top-left sm:translate-y-2 md:translate-y-0">{item.label.replace('FY ', '')}</div>
-               </div>
-             );
-          })}
-       </div>
+    <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 h-full flex flex-col">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 text-sm">
+            <Calendar className="w-4 h-4 text-indigo-500" /> Annual Payment Summary
+        </h3>
+        <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar max-h-[180px]">
+            {[...data].sort((a,b) => b.label.localeCompare(a.label)).map((item, i) => (
+                <div key={i} className="flex justify-between items-center p-3 bg-slate-50/50 rounded-xl border border-slate-100 hover:bg-slate-50 transition-colors">
+                    <span className="text-sm font-medium text-slate-600">{item.label}</span>
+                    <span className="font-bold text-slate-800 font-mono">{item.formattedValue}</span>
+                </div>
+            ))}
+        </div>
     </div>
   );
 };
@@ -488,7 +481,7 @@ const App = () => {
       const year = date.getFullYear();
       const fyStart = month >= 3 ? year : year - 1;
       const fyEndShort = (fyStart + 1).toString().slice(-2);
-      const fyLabel = `FY ${fyStart}-${(fyStart + 1).toString().slice(-2)}`;
+      const fyLabel = `FY ${fyStart}-${fyEndShort}`;
       if (!byFY[fyLabel]) byFY[fyLabel] = 0;
       byFY[fyLabel] += parseFloat(t.amount) || 0;
     });
@@ -1063,6 +1056,51 @@ const App = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <BentoCard title="Total Disbursed" value={formatCurrency(financeSummary.totalDisbursed + financeSummary.totalOwn)} subtext={`Target: ${formatCurrency(totalCost)}`} icon={Wallet} variant="primary" />
                <BentoCard title="Total Interest Paid" value={formatCurrency(financeSummary.totalEmiPaid)} subtext="Principal + Interest outflow" icon={TrendingUp} />
+            </div>
+
+            {/* CHARTS SECTION */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Funding Mix Donut */}
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col">
+                    <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2 text-sm">
+                        <PieChart className="w-4 h-4 text-indigo-500" /> Funding Mix
+                    </h3>
+                    <div className="flex flex-col items-center justify-center flex-1 gap-6">
+                        <DonutChart data={[
+                            { value: financeSummary.totalDisbursed, color: '#6366f1' }, // Indigo (Bank)
+                            { value: financeSummary.totalOwn, color: '#10b981' },       // Emerald (Own)
+                            { value: Math.max(0, financeSummary.balanceDue), color: '#f1f5f9' } // Slate (Due)
+                        ]} size={160} />
+                        <div className="w-full space-y-3 text-xs">
+                            <div className="flex items-center justify-between p-2 rounded-xl bg-indigo-50/50 border border-indigo-100/50">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                                    <span className="text-slate-600 font-medium">Bank Loan</span>
+                                </div>
+                                <span className="font-bold text-slate-800">{formatCurrency(financeSummary.totalDisbursed)}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-2 rounded-xl bg-emerald-50/50 border border-emerald-100/50">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                                    <span className="text-slate-600 font-medium">Own Contrib.</span>
+                                </div>
+                                <span className="font-bold text-slate-800">{formatCurrency(financeSummary.totalOwn)}</span>
+                            </div>
+                            <div className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-slate-300"></div>
+                                    <span className="text-slate-500">Balance Due</span>
+                                </div>
+                                <span className="font-bold text-slate-400">{formatCurrency(Math.max(0, financeSummary.balanceDue))}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Spending Trends Card (Replaces Annual EMI Outflow) */}
+                <div className="md:col-span-2 h-full">
+                     <YearlyBreakdown data={financeSummary.chartData} />
+                </div>
             </div>
 
             <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
