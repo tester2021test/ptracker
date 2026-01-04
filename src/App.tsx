@@ -7,7 +7,7 @@ import {
   UploadCloud, AlertCircle, Download, CreditCard,
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
   LogOut, Lock, Mail, Loader2, Menu, TrendingDown,
-  ArrowRightCircle, FileUp, FileInput
+  ArrowRightCircle, FileUp, FileInput, Percent
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -177,6 +177,7 @@ const App = () => {
   // --- App State ---
   const [activeTab, setActiveTab] = useState('schedule');
   const [carpetArea, setCarpetArea] = useState('');
+  const [prepaymentAmount, setPrepaymentAmount] = useState('');
   const [docsList, setDocsList] = useState([
     { id: 'allotment', label: 'Allotment Letter', status: 'pending' },
     { id: 'agreement', label: 'Registered Agreement', status: 'pending' },
@@ -233,7 +234,7 @@ const App = () => {
 
   // Derived Stats from Bank Schedule
   const bankSummary = useMemo(() => {
-      if (bankEntries.length === 0) return { currentEMI: 0, projectedEMI: 0, currentROI: 0, tenureEnd: '-' };
+      if (bankEntries.length === 0) return { currentEMI: 0, projectedEMI: 0, currentROI: 0, tenureEnd: '-', currentPrincipal: 0 };
       
       const today = new Date();
       // Find latest actual entry (closest to today)
@@ -247,9 +248,40 @@ const App = () => {
           currentEMI: current.emi || current.amount || 0,
           projectedEMI: maxEMI,
           currentROI: current.roi || 0,
-          tenureEnd: lastEntry ? new Date(lastEntry.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '-'
+          tenureEnd: lastEntry ? new Date(lastEntry.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '-',
+          currentPrincipal: current.balance || 0
       };
   }, [bankEntries]);
+
+  // --- Prepayment Logic ---
+  const prepaymentStats = useMemo(() => {
+    const P = bankSummary.currentPrincipal;
+    const r = (bankSummary.currentROI / 100) / 12;
+    const emi = bankSummary.currentEMI;
+    const prepay = parseFloat(prepaymentAmount) || 0;
+
+    if (P <= 0 || r <= 0 || emi <= 0 || prepay <= 0 || prepay >= P) return null;
+
+    // Helper to calc months: n = -log(1 - (P*r)/E) / log(1+r)
+    const calcMonths = (principal) => {
+        if (principal * r >= emi) return Infinity; // EMI doesn't cover interest
+        return -Math.log(1 - (principal * r) / emi) / Math.log(1 + r);
+    };
+
+    const monthsOriginal = calcMonths(P);
+    const monthsNew = calcMonths(P - prepay);
+
+    if (monthsOriginal === Infinity || monthsNew === Infinity) return null;
+
+    const interestOriginal = (monthsOriginal * emi) - P;
+    const interestNew = (monthsNew * emi) - (P - prepay);
+    
+    return {
+        savedInterest: Math.max(0, interestOriginal - interestNew),
+        monthsSaved: Math.max(0, monthsOriginal - monthsNew),
+        newTenureMonths: monthsNew
+    };
+  }, [bankSummary, prepaymentAmount]);
 
 
   useEffect(() => {
@@ -1296,6 +1328,58 @@ const App = () => {
                                 </div>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Prepayment Calculator Widget */}
+                    <div className="bg-gradient-to-br from-indigo-900 to-indigo-800 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden">
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-2 mb-6">
+                                <div className="p-2 bg-white/10 rounded-lg"><Calculator className="w-5 h-5 text-indigo-200" /></div>
+                                <div>
+                                    <h3 className="font-bold text-lg">Prepayment Impact</h3>
+                                    <p className="text-xs text-indigo-300">See how much you save</p>
+                                </div>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="text-[10px] uppercase font-bold text-indigo-300 tracking-wider mb-2 block">Lump-sum Amount</label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-3.5 text-indigo-300 font-bold">₹</span>
+                                    <input 
+                                        type="number" 
+                                        className="w-full bg-white/10 border border-white/20 rounded-xl py-3 pl-8 pr-4 text-white placeholder-indigo-300/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 font-semibold"
+                                        placeholder="e.g. 100000"
+                                        value={prepaymentAmount}
+                                        onChange={(e) => setPrepaymentAmount(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            {prepaymentStats ? (
+                                <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="bg-white/10 p-3 rounded-xl border border-white/10">
+                                        <span className="text-[10px] text-indigo-200 uppercase font-bold block mb-1">Interest Saved</span>
+                                        <span className="text-xl font-bold text-emerald-300">{formatCurrency(prepaymentStats.savedInterest)}</span>
+                                    </div>
+                                    <div className="bg-white/10 p-3 rounded-xl border border-white/10">
+                                        <span className="text-[10px] text-indigo-200 uppercase font-bold block mb-1">Time Saved</span>
+                                        <span className="text-xl font-bold text-white">{Math.floor(prepaymentStats.monthsSaved)} <span className="text-sm font-normal text-indigo-200">months</span></span>
+                                    </div>
+                                    <div className="col-span-2 bg-indigo-950/30 p-3 rounded-xl border border-indigo-400/20 text-xs text-indigo-200 flex items-center justify-between">
+                                        <span>New Tenure: <strong>{Math.ceil(prepaymentStats.newTenureMonths / 12)} years</strong> remaining</span>
+                                        <ArrowRightCircle className="w-4 h-4 text-indigo-400" />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center py-6 text-indigo-300/60 text-sm border border-dashed border-indigo-400/20 rounded-xl">
+                                    Enter an amount to verify savings on your current outstanding of <strong>{formatCurrency(bankSummary.currentPrincipal)}</strong>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Background Decoration */}
+                        <div className="absolute -top-10 -right-10 w-40 h-40 bg-indigo-500 rounded-full blur-[60px] opacity-20"></div>
+                        <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-emerald-500 rounded-full blur-[50px] opacity-20"></div>
                     </div>
                 </div>
 
