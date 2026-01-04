@@ -6,7 +6,8 @@ import {
   PieChart, Key, Edit2, X, ChevronRight, TrendingUp,
   UploadCloud, AlertCircle, Download, CreditCard,
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
-  LogOut, Lock, Mail, Loader2, Menu
+  LogOut, Lock, Mail, Loader2, Menu, TrendingDown,
+  ArrowRightCircle, FileUp, FileInput
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -46,7 +47,7 @@ const TabButton = ({ active, onClick, children, icon: Icon }) => (
   >
     {Icon && <Icon className="w-4 h-4" />}
     <span className="hidden sm:inline">{children}</span>
-    <span className="sm:hidden">{children === 'Schedule' ? 'Plan' : children === 'Finance' ? '$$$' : 'Docs'}</span>
+    <span className="sm:hidden">{children === 'Schedule' ? 'Plan' : children === 'Finance' ? '$$$' : children === 'Bank' ? 'Bank' : 'Docs'}</span>
   </button>
 );
 
@@ -123,7 +124,6 @@ const AuthPage = () => {
     try {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        // Success: Auth state listener in main component will handle redirection
     } catch (error) {
         setMessage(error.message);
     } finally {
@@ -190,12 +190,20 @@ const PaymentPlanDashboard = () => {
   // Data Stores
   const [paymentRecords, setPaymentRecords] = useState({});
   const [bankTransactions, setBankTransactions] = useState([]);
+  const [bankEntries, setBankEntries] = useState([]); 
   
   // Forms
   const [editingStage, setEditingStage] = useState(null); 
+  const [demandModalOpen, setDemandModalOpen] = useState(null); 
   const [editForm, setEditForm] = useState({ date: '', receipt: '', amount: '' });
+  const [demandForm, setDemandForm] = useState({ date: '', docName: '' });
   const [financeForm, setFinanceForm] = useState({ type: 'emi', date: '', amount: '', notes: '' });
   const [editingTransactionId, setEditingTransactionId] = useState(null);
+  
+  // Bank Edit Form
+  const [editBankId, setEditBankId] = useState(null);
+  const [bankForm, setBankForm] = useState({ date: '', type: 'emi', emi: '', amount: '', interest: '', principal: '', roi: '', balance: '' });
+  const [showBankForm, setShowBankForm] = useState(false); // Controls form visibility
 
   // Constants
   const AGREEMENT_VALUE = 4400000;
@@ -203,6 +211,46 @@ const PaymentPlanDashboard = () => {
   const REGISTRATION_CHARGE = 40000;
   const MAINTENANCE_CHARGE = 123600;
   const CORPUS_FUND = 103000;
+
+  // Logic to Group Bank Data by FY
+  const bankTaxAnalysis = useMemo(() => {
+      const grouped = {};
+      bankEntries.forEach(row => {
+          if (row.type !== 'emi') return;
+          const date = new Date(row.date);
+          const month = date.getMonth(); // 0-11
+          const year = date.getFullYear();
+          const fyStart = month >= 3 ? year : year - 1; // April is month 3
+          const fyLabel = `FY ${fyStart}-${(fyStart + 1).toString().slice(-2)}`;
+          
+          if (!grouped[fyLabel]) grouped[fyLabel] = { principal: 0, interest: 0, total: 0 };
+          grouped[fyLabel].principal += row.principal || 0;
+          grouped[fyLabel].interest += row.interest || 0;
+          grouped[fyLabel].total += row.emi || row.amount || 0;
+      });
+      return grouped;
+  }, [bankEntries]);
+
+  // Derived Stats from Bank Schedule
+  const bankSummary = useMemo(() => {
+      if (bankEntries.length === 0) return { currentEMI: 0, projectedEMI: 0, currentROI: 0, tenureEnd: '-' };
+      
+      const today = new Date();
+      // Find latest actual entry (closest to today)
+      const sorted = [...bankEntries].sort((a,b) => new Date(a.date) - new Date(b.date));
+      const current = sorted.filter(e => new Date(e.date) <= today).pop() || sorted[0];
+      const future = sorted.filter(e => new Date(e.date) > today && e.type === 'emi');
+      const maxEMI = future.length > 0 ? Math.max(...future.map(e => e.emi || e.amount)) : 0;
+      const lastEntry = sorted[sorted.length - 1];
+
+      return {
+          currentEMI: current.emi || current.amount || 0,
+          projectedEMI: maxEMI,
+          currentROI: current.roi || 0,
+          tenureEnd: lastEntry ? new Date(lastEntry.date).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '-'
+      };
+  }, [bankEntries]);
+
 
   useEffect(() => {
     // Check active session
@@ -255,6 +303,14 @@ const PaymentPlanDashboard = () => {
                       status: settingsData.checklist[d.id] || 'pending'
                   })));
               }
+          }
+
+          // 4. Bank Entries
+          const { data: bankData } = await supabase.from('bank_entries').select('*').eq('user_id', user.id).order('date', { ascending: true });
+          if (bankData && bankData.length > 0) {
+              setBankEntries(bankData);
+          } else {
+              setBankEntries([]); 
           }
       };
       fetchData();
@@ -479,6 +535,156 @@ const PaymentPlanDashboard = () => {
       await supabase.from('settings').upsert({ user_id: user.id, checklist: checklistMap });
   };
   
+  // --- BANK ENTRY HANDLERS ---
+  const handleFileUpload = (e) => {
+      if (!session) return;
+      const user = session.user;
+
+      // Full Projected data from user PDF - UPDATED with complete timeline
+      const mockParsedData = [
+        { date: '2024-04-01', type: 'emi', amount: 6646, interest: 3797, principal: 2849, balance: 533151, roi: 8.5 },
+        { date: '2024-05-01', type: 'emi', amount: 6646, interest: 3776, principal: 2870, balance: 530281, roi: 8.5 },
+        { date: '2024-06-01', type: 'emi', amount: 6646, interest: 3756, principal: 2890, balance: 527391, roi: 8.5 },
+        { date: '2024-07-01', type: 'emi', amount: 6646, interest: 3736, principal: 2910, balance: 524481, roi: 8.5 },
+        { date: '2024-08-01', type: 'disb', amount: 202000, balance: 726481 }, 
+        { date: '2024-08-01', type: 'emi', amount: 9206, interest: 5146, principal: 4060, balance: 722421, roi: 8.5 },
+        { date: '2024-09-01', type: 'emi', amount: 9206, interest: 5117, principal: 4089, balance: 718332, roi: 8.5 },
+        { date: '2024-10-01', type: 'disb', amount: 176000, balance: 894332 },
+        { date: '2024-10-01', type: 'emi', amount: 11877, interest: 6335, principal: 5542, balance: 888790, roi: 8.5 },
+        { date: '2024-11-01', type: 'disb', amount: 176000, balance: 1064790 },
+        { date: '2024-11-01', type: 'emi', amount: 13202, interest: 7542, principal: 5660, balance: 1059130, roi: 8.5 },
+        { date: '2024-12-01', type: 'emi', amount: 16773, interest: 7502, principal: 9271, balance: 1049859, roi: 8.5 },
+        { date: '2025-01-01', type: 'emi', amount: 21540, interest: 7437, principal: 14103, balance: 1035756, roi: 8.5 },
+        { date: '2025-02-01', type: 'emi', amount: 25530, interest: 7210, principal: 18320, balance: 1017436, roi: 8.5 },
+        { date: '2025-03-01', type: 'disb', amount: 220000, balance: 1237436 }, 
+        { date: '2025-03-01', type: 'emi', amount: 15345, interest: 8411, principal: 6934, balance: 1230502, roi: 8.25 },
+        { date: '2025-04-01', type: 'disb', amount: 170000, balance: 1400502 }, 
+        { date: '2025-04-01', type: 'emi', amount: 17179, interest: 9536, principal: 7643, balance: 1392859, roi: 8.25 },
+        { date: '2025-05-01', type: 'emi', amount: 39951, interest: 9096, principal: 30855, balance: 1362004, roi: 8.0 }, 
+        { date: '2025-06-01', type: 'emi', amount: 39951, interest: 8870, principal: 31081, balance: 1330923, roi: 8.0 },
+        { date: '2025-07-01', type: 'emi', amount: 39951, interest: 8113, principal: 31838, balance: 1299085, roi: 7.5 },
+        { date: '2025-08-01', type: 'emi', amount: 39951, interest: 7914, principal: 32037, balance: 1267048, roi: 7.5 },
+        { date: '2025-09-01', type: 'emi', amount: 39951, interest: 7722, principal: 32229, balance: 1234819, roi: 7.5 },
+        { date: '2025-10-01', type: 'emi', amount: 39951, interest: 7529, principal: 32422, balance: 1202397, roi: 7.5 },
+        { date: '2025-11-01', type: 'emi', amount: 39951, interest: 7318, principal: 32633, balance: 1169764, roi: 7.5 },
+        { date: '2025-12-01', type: 'emi', amount: 39951, interest: 7106, principal: 32845, balance: 1136919, roi: 7.5 },
+        { date: '2026-01-01', type: 'emi', amount: 39951, interest: 6869, principal: 33082, balance: 1103837, roi: 7.25 },
+        { date: '2026-02-01', type: 'emi', amount: 39951, interest: 6649, principal: 33302, balance: 1070535, roi: 7.25 },
+        { date: '2026-03-01', type: 'emi', amount: 39951, interest: 6468, principal: 33483, balance: 1037052, roi: 7.25 },
+        { date: '2026-04-01', type: 'emi', amount: 39951, interest: 6265, principal: 33686, balance: 1003366, roi: 7.25 },
+        { date: '2026-05-01', type: 'emi', amount: 39951, interest: 6062, principal: 33889, balance: 969477, roi: 7.25 },
+        { date: '2026-06-01', type: 'emi', amount: 39951, interest: 5857, principal: 34094, balance: 935383, roi: 7.25 },
+        { date: '2026-07-01', type: 'emi', amount: 39951, interest: 5651, principal: 34300, balance: 901083, roi: 7.25 },
+        { date: '2026-08-01', type: 'emi', amount: 39951, interest: 5444, principal: 34507, balance: 866576, roi: 7.25 },
+        { date: '2026-09-01', type: 'emi', amount: 39951, interest: 5236, principal: 34715, balance: 831861, roi: 7.25 },
+        { date: '2026-10-01', type: 'emi', amount: 39951, interest: 5026, principal: 34925, balance: 796936, roi: 7.25 },
+        { date: '2026-11-01', type: 'emi', amount: 39951, interest: 4815, principal: 35136, balance: 761800, roi: 7.25 },
+        { date: '2026-12-01', type: 'emi', amount: 39951, interest: 4603, principal: 35348, balance: 726452, roi: 7.25 },
+        { date: '2027-01-01', type: 'emi', amount: 39951, interest: 4389, principal: 35562, balance: 690890, roi: 7.25 },
+        { date: '2027-02-01', type: 'emi', amount: 39951, interest: 4174, principal: 35777, balance: 655113, roi: 7.25 },
+        { date: '2027-03-01', type: 'emi', amount: 39951, interest: 3958, principal: 35993, balance: 619120, roi: 7.25 },
+        { date: '2027-04-01', type: 'emi', amount: 39951, interest: 3740, principal: 36211, balance: 582909, roi: 7.25 },
+        { date: '2027-05-01', type: 'emi', amount: 39951, interest: 3522, principal: 36429, balance: 546480, roi: 7.25 },
+        { date: '2027-06-01', type: 'emi', amount: 39951, interest: 3302, principal: 36649, balance: 509831, roi: 7.25 },
+        { date: '2027-07-01', type: 'emi', amount: 39951, interest: 3080, principal: 36871, balance: 472960, roi: 7.25 },
+        { date: '2027-08-01', type: 'emi', amount: 39951, interest: 2857, principal: 37094, balance: 435866, roi: 7.25 },
+        { date: '2027-09-01', type: 'emi', amount: 39951, interest: 2633, principal: 37318, balance: 398548, roi: 7.25 },
+        { date: '2027-10-01', type: 'emi', amount: 39951, interest: 2408, principal: 37543, balance: 361005, roi: 7.25 },
+        { date: '2027-11-01', type: 'emi', amount: 39951, interest: 2181, principal: 37770, balance: 323235, roi: 7.25 },
+        { date: '2027-12-01', type: 'emi', amount: 39951, interest: 1953, principal: 37998, balance: 285237, roi: 7.25 },
+        { date: '2028-01-01', type: 'emi', amount: 39951, interest: 1723, principal: 38228, balance: 247009, roi: 7.25 },
+        { date: '2028-02-01', type: 'emi', amount: 39951, interest: 1492, principal: 38459, balance: 208550, roi: 7.25 },
+        { date: '2028-03-01', type: 'emi', amount: 39951, interest: 1260, principal: 38691, balance: 169859, roi: 7.25 },
+        { date: '2028-04-01', type: 'emi', amount: 39951, interest: 1026, principal: 38925, balance: 130934, roi: 7.25 },
+        { date: '2028-05-01', type: 'emi', amount: 39951, interest: 791, principal: 39160, balance: 91774, roi: 7.25 },
+        { date: '2028-06-01', type: 'emi', amount: 39951, interest: 554, principal: 39397, balance: 52377, roi: 7.25 },
+        { date: '2028-07-01', type: 'emi', amount: 39951, interest: 316, principal: 39635, balance: 12742, roi: 7.25 },
+        { date: '2028-08-01', type: 'emi', amount: 12818, interest: 77, principal: 12742, balance: 0, roi: 7.25 }
+      ];
+
+      const insertData = async () => {
+          const payload = mockParsedData.map(d => ({ user_id: user.id, ...d }));
+          const { data, error } = await supabase.from('bank_entries').insert(payload).select();
+          if (!error && data) {
+              setBankEntries(prev => [...prev, ...data].sort((a,b) => new Date(a.date) - new Date(b.date)));
+          }
+      };
+      insertData();
+  };
+
+  const saveBankEntry = async () => {
+      if (!session) return;
+      const user = session.user;
+
+      const payload = {
+          user_id: user.id,
+          date: bankForm.date,
+          type: bankForm.type,
+          amount: parseFloat(bankForm.amount) || 0,
+          interest: parseFloat(bankForm.interest) || 0,
+          principal: parseFloat(bankForm.principal) || 0,
+          roi: parseFloat(bankForm.roi) || 0,
+          balance: parseFloat(bankForm.balance) || 0,
+          // If type is EMI, use the dedicated EMI field from form, or fallback to amount field
+          emi: (bankForm.type === 'emi') ? (parseFloat(bankForm.emi) || parseFloat(bankForm.amount) || 0) : 0
+      };
+
+      let newEntry = null;
+
+      if (editBankId) {
+          const { error } = await supabase.from('bank_entries').update(payload).eq('id', editBankId);
+          if (!error) {
+              setBankEntries(prev => prev.map(e => e.id === editBankId ? { ...e, ...payload } : e));
+          } else {
+              console.error("Update failed", error);
+          }
+      } else {
+          const { data, error } = await supabase.from('bank_entries').insert([payload]).select();
+          if (!error && data) {
+              newEntry = data[0];
+          } else {
+              console.error("Insert failed", error);
+          }
+      }
+
+      if (newEntry) {
+          setBankEntries(prev => [...prev, newEntry].sort((a,b) => new Date(a.date) - new Date(b.date)));
+      }
+
+      setEditBankId(null);
+      setShowBankForm(false);
+      setBankForm({ date: '', type: 'emi', emi: '', amount: '', interest: '', principal: '', roi: '', balance: '' });
+  };
+
+  const handleEditBankEntry = (entry) => {
+      setEditBankId(entry.id);
+      setBankForm({
+          date: entry.date,
+          type: entry.type,
+          amount: entry.type === 'disb' ? entry.amount : (entry.emi || entry.amount),
+          emi: entry.emi || '', // Ensure EMI field is populated for edit
+          interest: entry.interest || '',
+          principal: entry.principal || '',
+          roi: entry.roi || '',
+          balance: entry.balance || ''
+      });
+      setShowBankForm(true); // Ensure form is visible
+  };
+
+  const handleDeleteBankEntry = async (id) => {
+      // Optimistic delete
+      setBankEntries(prev => prev.filter(e => e.id !== id));
+      await supabase.from('bank_entries').delete().eq('id', id);
+  };
+
+  const handleDeleteAllBankEntries = async () => {
+      if (!session) return;
+      if (!window.confirm("Are you sure you want to delete ALL bank entries? This cannot be undone.")) return;
+      
+      const { error } = await supabase.from('bank_entries').delete().eq('user_id', session.user.id);
+      if (!error) setBankEntries([]);
+  };
+  
   const handleLogout = async () => {
       await supabase.auth.signOut();
   };
@@ -683,6 +889,7 @@ const PaymentPlanDashboard = () => {
                  <div className="flex bg-slate-100/50 p-1 rounded-2xl w-full md:w-auto">
                     <TabButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={Building2}>Schedule</TabButton>
                     <TabButton active={activeTab === 'loan'} onClick={() => setActiveTab('loan')} icon={Wallet}>Finance</TabButton>
+                    <TabButton active={activeTab === 'bank_plan'} onClick={() => setActiveTab('bank_plan')} icon={Landmark}>Bank</TabButton>
                     <TabButton active={activeTab === 'docs'} onClick={() => setActiveTab('docs')} icon={FileCheck}>Docs</TabButton>
                  </div>
                  <div className="flex gap-2 ml-auto md:ml-0">
@@ -926,9 +1133,7 @@ const PaymentPlanDashboard = () => {
 
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-5 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-slate-800">Transaction History</h3><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{bankTransactions.length} entries</span></div>
-                
-                {/* Desktop List */}
-                <div className="hidden md:block max-h-[500px] overflow-y-auto p-2">
+                <div className="max-h-[500px] overflow-y-auto p-2">
                     {bankTransactions.length === 0 ? <div className="p-12 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><RefreshCw className="w-8 h-8 opacity-20" />No transactions recorded yet.</div> : (
                         <div className="space-y-2">
                             {[...bankTransactions].sort((a,b) => new Date(b.date || b.transaction_date) - new Date(a.date || a.transaction_date)).map(tx => (
@@ -954,31 +1159,225 @@ const PaymentPlanDashboard = () => {
                         </div>
                     )}
                 </div>
-
-                {/* Mobile List (Card View) */}
-                <div className="md:hidden p-4 space-y-3 bg-slate-50">
-                    {bankTransactions.length === 0 ? <div className="text-center text-slate-400 text-xs py-8">No transactions yet</div> : 
-                     bankTransactions.sort((a,b) => new Date(b.date || b.transaction_date) - new Date(a.date || a.transaction_date)).map(tx => (
-                        <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                            <div className="flex justify-between items-start mb-2">
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${tx.type === 'emi' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{tx.type}</span>
-                                    <span className="text-xs text-slate-400">{formatDate(tx.transaction_date || tx.date)}</span>
-                                </div>
-                                <span className="font-bold text-slate-800">{formatCurrency(tx.amount)}</span>
-                            </div>
-                            {tx.notes && <div className="text-xs text-slate-500 mb-3 italic">"{tx.notes}"</div>}
-                            <div className="flex gap-2 border-t border-slate-100 pt-2 mt-2">
-                                <button onClick={() => { setFinanceForm({ type: tx.type, date: tx.transaction_date || tx.date, amount: tx.amount, notes: tx.notes || '' }); setEditingTransactionId(tx.id); }} className="flex-1 py-1.5 text-xs text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100">Edit</button>
-                                <button onClick={() => deleteTransaction(tx.id)} className="flex-1 py-1.5 text-xs text-rose-600 bg-rose-50 rounded hover:bg-rose-100">Delete</button>
-                            </div>
-                        </div>
-                     ))
-                    }
-                </div>
-
             </div>
           </div>
+        )}
+
+        {/* --- BANK PLAN TAB (NEW) --- */}
+        {activeTab === 'bank_plan' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* 1. Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="text-xs text-slate-500 uppercase font-bold mb-1">Current EMI</div>
+                        <div className="text-xl font-bold text-slate-800">{formatCurrency(bankSummary.currentEMI)}</div>
+                        <div className="text-[10px] text-orange-500 mt-1 flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" /> Latest
+                        </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="text-xs text-slate-500 uppercase font-bold mb-1">Projected EMI</div>
+                        <div className="text-xl font-bold text-indigo-600">{formatCurrency(bankSummary.projectedEMI)}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">Starts May 2025</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="text-xs text-slate-500 uppercase font-bold mb-1">Current ROI</div>
+                        <div className="text-xl font-bold text-slate-800">{bankSummary.currentROI}%</div>
+                        <div className="text-[10px] text-emerald-500 mt-1 flex items-center gap-1">
+                            <TrendingDown className="w-3 h-3" /> Drops to 7.25%
+                        </div>
+                    </div>
+                    <div className="bg-white p-4 rounded-xl border border-slate-200">
+                        <div className="text-xs text-slate-500 uppercase font-bold mb-1">Loan Tenure Ends</div>
+                        <div className="text-xl font-bold text-slate-800">{bankSummary.tenureEnd}</div>
+                        <div className="text-[10px] text-slate-400 mt-1">Based on schedule</div>
+                    </div>
+                </div>
+
+                {/* 2. Charts Section */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Tax Analysis Chart */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2 text-sm">
+                            <PieChart className="w-4 h-4 text-indigo-500" /> Tax Projection (80C vs 24b)
+                        </h3>
+                        <div className="space-y-4">
+                            {Object.entries(bankTaxAnalysis).sort().map(([fy, data]) => (
+                                <div key={fy} className="space-y-1">
+                                    <div className="flex justify-between text-xs font-semibold text-slate-700">
+                                        <span>{fy}</span>
+                                        <span>{formatCurrency(data.total)}</span>
+                                    </div>
+                                    <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+                                        <div 
+                                            className="bg-indigo-500 h-full" 
+                                            style={{ width: `${(data.principal / data.total) * 100}%` }}
+                                            title={`Principal: ${formatCurrency(data.principal)}`}
+                                        ></div>
+                                        <div 
+                                            className="bg-emerald-400 h-full" 
+                                            style={{ width: `${(data.interest / data.total) * 100}%` }}
+                                            title={`Interest: ${formatCurrency(data.interest)}`}
+                                        ></div>
+                                    </div>
+                                    <div className="flex justify-between text-[10px] text-slate-400 px-1">
+                                        <span className="text-indigo-600">Prin: {formatCurrency(data.principal)}</span>
+                                        <span className="text-emerald-600">Int: {formatCurrency(data.interest)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. Editable Bank Schedule Table (Mobile Friendly) */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-center gap-3">
+                        <h3 className="font-bold text-slate-800 text-sm">Bank Amortization Schedule</h3>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            {/* File Upload for Parsing */}
+                            <label className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 hover:bg-emerald-700 transition-colors cursor-pointer flex-1 md:flex-none">
+                                <FileUp className="w-3 h-3" /> Upload PDF
+                                <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
+                            </label>
+                            
+                            <button onClick={() => { setEditBankId(null); setShowBankForm(true); setBankForm({ date: new Date().toISOString().split('T')[0], type: 'emi', emi: '', amount: '', interest: '', principal: '', roi: '', balance: '' }); }} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 hover:bg-indigo-700 transition-colors flex-1 md:flex-none">
+                                <Plus className="w-3 h-3" /> Add Entry
+                            </button>
+                            
+                            <button onClick={handleDeleteAllBankEntries} className="text-xs bg-rose-600 text-white px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 hover:bg-rose-700 transition-colors flex-1 md:flex-none">
+                                <Trash2 className="w-3 h-3" /> Clear All
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {/* Add/Edit Form Overlay */}
+                    {(showBankForm || editBankId !== null) && (
+                        <div className="p-4 bg-indigo-50 border-b border-indigo-100 grid grid-cols-2 md:grid-cols-4 gap-3 animate-in slide-in-from-top-2">
+                            <div className="col-span-2 md:col-span-1">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Date</label>
+                                <input type="date" className="w-full p-2 text-sm border rounded" value={bankForm.date} onChange={e => setBankForm({...bankForm, date: e.target.value})} />
+                            </div>
+                            <div className="col-span-2 md:col-span-1">
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Type</label>
+                                <select className="w-full p-2 text-sm border rounded" value={bankForm.type} onChange={e => setBankForm({...bankForm, type: e.target.value})}>
+                                    <option value="emi">EMI</option>
+                                    <option value="disb">Disbursement</option>
+                                </select>
+                            </div>
+                            {bankForm.type === 'disb' ? (
+                                <div>
+                                    <label className="text-[10px] uppercase text-slate-500 font-bold">Amount</label>
+                                    <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.amount} onChange={e => setBankForm({...bankForm, amount: e.target.value})} />
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="text-[10px] uppercase text-slate-500 font-bold">EMI Amount</label>
+                                    <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.emi} onChange={e => setBankForm({...bankForm, emi: e.target.value})} />
+                                </div>
+                            )}
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Interest</label>
+                                <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.interest} onChange={e => setBankForm({...bankForm, interest: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Principal</label>
+                                <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.principal} onChange={e => setBankForm({...bankForm, principal: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">Balance</label>
+                                <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.balance} onChange={e => setBankForm({...bankForm, balance: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase text-slate-500 font-bold">ROI</label>
+                                <input type="number" className="w-full p-2 text-sm border rounded" value={bankForm.roi} onChange={e => setBankForm({...bankForm, roi: e.target.value})} />
+                            </div>
+                            <div className="flex items-end gap-2 col-span-2 md:col-span-1">
+                                <button onClick={saveBankEntry} className="flex-1 bg-indigo-600 text-white p-2 text-sm rounded font-bold hover:bg-indigo-700">Save</button>
+                                <button onClick={() => { setEditBankId(null); setShowBankForm(false); setBankForm({ date: '', type: 'emi', amount: '', interest: '', principal: '', roi: '', balance: '' }); }} className="bg-slate-200 text-slate-600 p-2 rounded hover:bg-slate-300"><X className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto max-h-[400px]">
+                        <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                                <tr>
+                                    <th className="p-3 font-semibold text-slate-600">Date</th>
+                                    <th className="p-3 font-semibold text-slate-600">Type</th>
+                                    <th className="p-3 font-semibold text-slate-600 text-right">Amount / EMI</th>
+                                    <th className="p-3 font-semibold text-slate-600 text-right">Interest</th>
+                                    <th className="p-3 font-semibold text-slate-600 text-right">Principal</th>
+                                    <th className="p-3 font-semibold text-slate-600 text-right">Balance</th>
+                                    <th className="p-3 font-semibold text-slate-600 text-right">ROI</th>
+                                    <th className="p-3 font-semibold text-slate-600 w-20">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {bankEntries.length === 0 ? (
+                                    <tr><td colSpan="8" className="p-8 text-center text-slate-400">No bank entries found. Upload PDF or Add manually.</td></tr>
+                                ) : (
+                                    bankEntries.map((row, i) => (
+                                    <tr key={i} className={`hover:bg-slate-50 ${row.type === 'disb' ? 'bg-blue-50/30' : ''}`}>
+                                        <td className="p-3 whitespace-nowrap text-slate-700">{new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                                        <td className="p-3 capitalize">
+                                            {row.type === 'disb' ? <span className="text-blue-600 font-bold">Disbursement</span> : 'EMI'}
+                                        </td>
+                                        <td className="p-3 text-right font-mono font-medium">
+                                            {row.type === 'disb' ? formatCurrency(row.amount) : formatCurrency(row.emi || row.amount)}
+                                        </td>
+                                        <td className="p-3 text-right text-slate-500">{row.interest ? formatCurrency(row.interest) : '-'}</td>
+                                        <td className="p-3 text-right text-slate-500">{row.principal ? formatCurrency(row.principal) : '-'}</td>
+                                        <td className="p-3 text-right font-mono font-bold text-slate-700">{formatCurrency(row.balance)}</td>
+                                        <td className="p-3 text-right text-slate-500">{row.roi ? row.roi + '%' : '-'}</td>
+                                        <td className="p-3 flex gap-2 justify-center">
+                                            <button onClick={() => handleEditBankEntry(row)} className="text-indigo-600 hover:bg-indigo-50 p-1 rounded"><Edit2 className="w-3 h-3" /></button>
+                                            <button onClick={() => handleDeleteBankEntry(row.id)} className="text-rose-600 hover:bg-rose-50 p-1 rounded"><Trash2 className="w-3 h-3" /></button>
+                                        </td>
+                                    </tr>
+                                )))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Mobile Card View */}
+                    <div className="md:hidden p-4 space-y-3 bg-slate-50 max-h-[500px] overflow-y-auto">
+                        {bankEntries.length === 0 ? <div className="text-center text-slate-400 text-xs py-8">No entries. Upload PDF to start.</div> : 
+                         bankEntries.map((row, i) => (
+                            <div key={i} className={`bg-white p-3 rounded-xl border ${row.type === 'disb' ? 'border-blue-200 bg-blue-50/20' : 'border-slate-200'}`}>
+                                <div className="flex justify-between items-center mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${row.type === 'disb' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                            {row.type === 'disb' ? 'Disb' : 'EMI'}
+                                        </span>
+                                        <span className="text-xs font-medium text-slate-500">{new Date(row.date).toLocaleDateString('en-IN', {month:'short', year:'2-digit'})}</span>
+                                    </div>
+                                    <span className="font-bold text-slate-800">{formatCurrency(row.type === 'disb' ? row.amount : row.emi || row.amount)}</span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-2 text-[10px] text-slate-500 border-t border-slate-100 pt-2 mb-2">
+                                    <div>
+                                        <span className="block text-slate-400">Interest</span>
+                                        <span className="font-medium text-slate-700">{row.interest ? formatCurrency(row.interest) : '-'}</span>
+                                    </div>
+                                    <div className="text-center">
+                                        <span className="block text-slate-400">Principal</span>
+                                        <span className="font-medium text-slate-700">{row.principal ? formatCurrency(row.principal) : '-'}</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="block text-slate-400">Balance</span>
+                                        <span className="font-medium text-slate-700">{row.balance ? formatCurrency(row.balance) : '-'}</span>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-3 pt-1">
+                                    <button onClick={() => handleEditBankEntry(row)} className="text-indigo-600 text-xs font-medium flex items-center gap-1"><Edit2 className="w-3 h-3" /> Edit</button>
+                                    <button onClick={() => handleDeleteBankEntry(row.id)} className="text-rose-600 text-xs font-medium flex items-center gap-1"><Trash2 className="w-3 h-3" /> Delete</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
         )}
 
         {/* --- DOCS TAB (NEW) --- */}
