@@ -6,7 +6,7 @@ import {
   PieChart, Key, Edit2, X, ChevronRight, TrendingUp,
   UploadCloud, AlertCircle, Download, CreditCard,
   BarChart3, RefreshCw, Printer, FileCheck, Ruler,
-  LogOut, Lock, Mail, Loader2
+  LogOut, Lock, Mail, Loader2, Menu
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -38,14 +38,15 @@ const StatCard = ({ icon: Icon, label, value, subtext, colorClass = "text-slate-
 const TabButton = ({ active, onClick, children, icon: Icon }) => (
   <button
     onClick={onClick}
-    className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium transition-all rounded-xl ${
+    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 md:px-6 md:py-3 text-xs md:text-sm font-medium transition-all rounded-xl ${
       active 
         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200' 
         : 'text-slate-600 hover:bg-slate-100'
     }`}
   >
     {Icon && <Icon className="w-4 h-4" />}
-    {children}
+    <span className="hidden sm:inline">{children}</span>
+    <span className="sm:hidden">{children === 'Schedule' ? 'Plan' : children === 'Finance' ? '$$$' : 'Docs'}</span>
   </button>
 );
 
@@ -88,17 +89,17 @@ const AnnualSpendChart = ({ data }) => {
              </div>
           ))}
        </div>
-       <div className="flex items-end justify-around h-full z-10 px-2 gap-2">
+       <div className="flex items-end justify-around h-full z-10 px-2 gap-2 overflow-x-auto">
           {data.map((item, i) => {
              const height = (item.value / yMax) * 100;
              return (
-               <div key={i} className="flex flex-col items-center justify-end h-full flex-1 group relative">
+               <div key={i} className="flex flex-col items-center justify-end h-full flex-1 group relative min-w-[30px]">
                   <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-200 transform translate-y-2 group-hover:translate-y-0 bg-slate-800 text-white text-[10px] py-1 px-2 rounded-lg shadow-xl whitespace-nowrap z-20 pointer-events-none">
                      {item.formattedValue}
                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-slate-800"></div>
                   </div>
                   <div className="w-full max-w-[40px] bg-indigo-500 rounded-t-md relative hover:bg-indigo-600 transition-all duration-500 ease-out group-hover:shadow-[0_0_15px_rgba(99,102,241,0.3)]" style={{ height: `${Math.max(height, 2)}%` }}></div>
-                  <div className="mt-2 text-[10px] text-slate-500 font-medium whitespace-nowrap">{item.label.replace('FY ', '')}</div>
+                  <div className="mt-2 text-[10px] text-slate-500 font-medium whitespace-nowrap rotate-0 md:rotate-0 sm:-rotate-45 origin-top-left sm:translate-y-2 md:translate-y-0">{item.label.replace('FY ', '')}</div>
                </div>
              );
           })}
@@ -192,9 +193,7 @@ const PaymentPlanDashboard = () => {
   
   // Forms
   const [editingStage, setEditingStage] = useState(null); 
-  const [demandModalOpen, setDemandModalOpen] = useState(null); 
   const [editForm, setEditForm] = useState({ date: '', receipt: '', amount: '' });
-  const [demandForm, setDemandForm] = useState({ date: '', docName: '' });
   const [financeForm, setFinanceForm] = useState({ type: 'emi', date: '', amount: '', notes: '' });
   const [editingTransactionId, setEditingTransactionId] = useState(null);
 
@@ -643,45 +642,54 @@ const PaymentPlanDashboard = () => {
       <div className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-20 shadow-sm no-print">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row justify-between items-center py-4 gap-4">
-             <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-200">
-                  <Calculator className="w-6 h-6" />
+             <div className="flex items-center justify-between w-full md:w-auto gap-3">
+                <div className="flex items-center gap-3">
+                    <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-200">
+                    <Calculator className="w-6 h-6" />
+                    </div>
+                    <div>
+                    <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Property Tracker</h1>
+                    <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
+                        <span className="hidden sm:inline">Agreement:</span> {formatCurrency(value)}
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" title="Supabase Connected"></span>
+                    </p>
+                    </div>
                 </div>
-                <div>
-                  <h1 className="text-xl font-bold text-slate-900 tracking-tight">Property Tracker</h1>
-                  <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
-                      Agreement: {formatCurrency(value)}
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" title="Supabase Connected"></span>
-                  </p>
-                </div>
+                
+                {/* Mobile Logout (visible only on small) */}
+                <button onClick={handleLogout} className="md:hidden p-2 text-slate-600 hover:text-rose-600"><LogOut className="w-5 h-5" /></button>
              </div>
              
-             {/* EFFECTIVE RATE WIDGET */}
-             <div className="flex items-center bg-slate-100 rounded-xl px-3 py-1 gap-2 border border-slate-200">
-                 <Ruler className="w-4 h-4 text-slate-400" />
-                 <input 
-                    type="number" placeholder="Area" 
-                    className="w-16 bg-transparent text-sm font-semibold outline-none text-right"
-                    value={carpetArea} onChange={(e) => updateCarpetArea(e.target.value)}
-                 />
-                 <span className="text-xs text-slate-500">sq.ft</span>
-                 {carpetArea > 0 && (
-                     <div className="pl-2 border-l border-slate-300 ml-1">
-                         <span className="text-xs text-slate-400 block -mb-1">Eff. Rate</span>
-                         <span className="text-sm font-bold text-indigo-600">{formatCurrency(totalCost / carpetArea)}</span>
-                     </div>
-                 )}
+             {/* EFFECTIVE RATE WIDGET - Scrollable on mobile if needed */}
+             <div className="w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                 <div className="flex items-center bg-slate-100 rounded-xl px-3 py-1 gap-2 border border-slate-200 w-fit whitespace-nowrap">
+                    <Ruler className="w-4 h-4 text-slate-400" />
+                    <input 
+                        type="number" placeholder="Area" 
+                        className="w-16 bg-transparent text-sm font-semibold outline-none text-right"
+                        value={carpetArea} onChange={(e) => updateCarpetArea(e.target.value)}
+                    />
+                    <span className="text-xs text-slate-500">sq.ft</span>
+                    {carpetArea > 0 && (
+                        <div className="pl-2 border-l border-slate-300 ml-1">
+                            <span className="text-xs text-slate-400 block -mb-1">Eff. Rate</span>
+                            <span className="text-sm font-bold text-indigo-600">{formatCurrency(totalCost / carpetArea)}</span>
+                        </div>
+                    )}
+                 </div>
              </div>
 
-             <div className="flex w-full md:w-auto items-center gap-3">
-                 <div className="flex bg-slate-100/50 p-1 rounded-2xl">
+             <div className="flex w-full md:w-auto items-center gap-3 overflow-x-auto pb-1 md:pb-0">
+                 <div className="flex bg-slate-100/50 p-1 rounded-2xl w-full md:w-auto">
                     <TabButton active={activeTab === 'schedule'} onClick={() => setActiveTab('schedule')} icon={Building2}>Schedule</TabButton>
                     <TabButton active={activeTab === 'loan'} onClick={() => setActiveTab('loan')} icon={Wallet}>Finance</TabButton>
                     <TabButton active={activeTab === 'docs'} onClick={() => setActiveTab('docs')} icon={FileCheck}>Docs</TabButton>
                  </div>
-                 <button onClick={handleExportCSV} className="p-2.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors" title="Export CSV"><Download className="w-5 h-5" /></button>
-                 <button onClick={handlePrint} className="p-2.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Printer className="w-5 h-5" /></button>
-                 <button onClick={handleLogout} className="p-2.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors" title="Sign Out"><LogOut className="w-5 h-5" /></button>
+                 <div className="flex gap-2 ml-auto md:ml-0">
+                    <button onClick={handleExportCSV} className="p-2.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors" title="Export CSV"><Download className="w-5 h-5" /></button>
+                    <button onClick={handlePrint} className="p-2.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"><Printer className="w-5 h-5" /></button>
+                    <button onClick={handleLogout} className="hidden md:block p-2.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors" title="Sign Out"><LogOut className="w-5 h-5" /></button>
+                 </div>
              </div>
           </div>
         </div>
@@ -747,7 +755,9 @@ const PaymentPlanDashboard = () => {
                     <div className="text-xs font-medium px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{planData.filter(d => d.status === 'paid').length} Paid</div>
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -791,6 +801,65 @@ const PaymentPlanDashboard = () => {
                   </tbody>
                 </table>
               </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-4 p-4 bg-slate-50">
+                {planData.map((row) => (
+                  <div key={row.id} className={`bg-white p-4 rounded-xl shadow-sm border ${row.status === 'paid' ? 'border-emerald-100 bg-emerald-50/20' : 'border-slate-200'}`}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                         <span className="text-xs text-slate-400 font-mono">#{row.id > 100 ? '*' : row.id}</span>
+                         <h4 className="font-bold text-slate-800 text-sm">{row.label}</h4>
+                         {row.stagePercent > 0 && <span className="text-[10px] text-slate-500">{row.stagePercent}% Stage</span>}
+                      </div>
+                      <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${row.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                        {row.status}
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs mb-3 pb-3 border-b border-slate-100">
+                       <div>
+                           <span className="text-slate-400 block text-[10px] uppercase">Payable</span>
+                           <span className="font-semibold text-slate-900">{formatCurrency(row.totalPayable)}</span>
+                       </div>
+                       <div className="text-right">
+                           <span className="text-slate-400 block text-[10px] uppercase">Paid</span>
+                           <span className={`font-semibold ${row.paidAmount > 0 ? 'text-emerald-700' : 'text-slate-900'}`}>{formatCurrency(row.paidAmount)}</span>
+                       </div>
+                       {row.balance > 1 && (
+                           <div className="col-span-2 pt-1">
+                               <span className="text-slate-400 text-[10px] uppercase mr-2">Balance:</span>
+                               <span className="font-mono text-slate-700">{formatCurrency(row.balance)}</span>
+                           </div>
+                       )}
+                       {row.record.date && (
+                           <div className="col-span-2 flex items-center gap-1 text-slate-500">
+                               <Calendar className="w-3 h-3" /> {formatDate(row.record.date)}
+                           </div>
+                       )}
+                    </div>
+
+                    {editingStage === row.id ? (
+                        <div className="space-y-2 animate-in fade-in">
+                            <input type="number" placeholder="Amount" className="w-full p-2 text-sm border rounded-lg bg-slate-50" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} />
+                            <div className="flex gap-2">
+                                <input type="date" className="flex-1 p-2 text-sm border rounded-lg bg-slate-50" value={editForm.date} onChange={e => setEditForm({...editForm, date: e.target.value})} />
+                                <button onClick={() => savePayment(row.id)} className="bg-indigo-600 text-white px-4 rounded-lg text-xs font-bold">Save</button>
+                                <button onClick={() => setEditingStage(null)} className="bg-slate-200 text-slate-600 px-3 rounded-lg"><X className="w-4 h-4" /></button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button 
+                            onClick={() => { setEditingStage(row.id); setEditForm({ date: row.record.date || new Date().toISOString().split('T')[0], receipt: row.record.receipt || '', amount: row.record.paidAmount || row.totalPayable }) }} 
+                            className="w-full py-2 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-1"
+                        >
+                            <Edit2 className="w-3 h-3" /> Update Payment
+                        </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
             </div>
           </div>
         )}
@@ -857,7 +926,9 @@ const PaymentPlanDashboard = () => {
 
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="p-5 border-b border-slate-100 flex justify-between items-center"><h3 className="font-bold text-slate-800">Transaction History</h3><span className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">{bankTransactions.length} entries</span></div>
-                <div className="max-h-[500px] overflow-y-auto p-2">
+                
+                {/* Desktop List */}
+                <div className="hidden md:block max-h-[500px] overflow-y-auto p-2">
                     {bankTransactions.length === 0 ? <div className="p-12 text-center text-slate-400 text-sm flex flex-col items-center gap-2"><RefreshCw className="w-8 h-8 opacity-20" />No transactions recorded yet.</div> : (
                         <div className="space-y-2">
                             {[...bankTransactions].sort((a,b) => new Date(b.date || b.transaction_date) - new Date(a.date || a.transaction_date)).map(tx => (
@@ -883,6 +954,29 @@ const PaymentPlanDashboard = () => {
                         </div>
                     )}
                 </div>
+
+                {/* Mobile List (Card View) */}
+                <div className="md:hidden p-4 space-y-3 bg-slate-50">
+                    {bankTransactions.length === 0 ? <div className="text-center text-slate-400 text-xs py-8">No transactions yet</div> : 
+                     bankTransactions.sort((a,b) => new Date(b.date || b.transaction_date) - new Date(a.date || a.transaction_date)).map(tx => (
+                        <div key={tx.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                            <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${tx.type === 'emi' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{tx.type}</span>
+                                    <span className="text-xs text-slate-400">{formatDate(tx.transaction_date || tx.date)}</span>
+                                </div>
+                                <span className="font-bold text-slate-800">{formatCurrency(tx.amount)}</span>
+                            </div>
+                            {tx.notes && <div className="text-xs text-slate-500 mb-3 italic">"{tx.notes}"</div>}
+                            <div className="flex gap-2 border-t border-slate-100 pt-2 mt-2">
+                                <button onClick={() => { setFinanceForm({ type: tx.type, date: tx.transaction_date || tx.date, amount: tx.amount, notes: tx.notes || '' }); setEditingTransactionId(tx.id); }} className="flex-1 py-1.5 text-xs text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100">Edit</button>
+                                <button onClick={() => deleteTransaction(tx.id)} className="flex-1 py-1.5 text-xs text-rose-600 bg-rose-50 rounded hover:bg-rose-100">Delete</button>
+                            </div>
+                        </div>
+                     ))
+                    }
+                </div>
+
             </div>
           </div>
         )}
