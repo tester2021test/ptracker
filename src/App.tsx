@@ -170,24 +170,19 @@ const AuthPage = () => {
       setMessage('');
 
       try {
-          if (authStep === 'enroll') {
-              // Verify and Enable the new factor
-              const { data, error } = await supabase.auth.mfa.challengeAndVerify({
-                  factorId,
-                  code: mfaCode
-              });
-              if (error) throw error;
-              // On success, refresh the session to get AAL2
-              await supabase.auth.refreshSession(); 
-          } else {
-              // Verify existing factor
-              const { data, error } = await supabase.auth.mfa.challengeAndVerify({
-                  factorId,
-                  code: mfaCode
-              });
-              if (error) throw error;
-          }
-          // Note: The main App component listens to auth state changes and will render the dashboard once AAL2 is achieved or verified
+          // 1. Verify the code
+          const { data, error } = await supabase.auth.mfa.challengeAndVerify({
+              factorId,
+              code: mfaCode
+          });
+          
+          if (error) throw error;
+
+          // 2. CRITICAL: Refresh the session immediately to upgrade assurance level to AAL2
+          // This ensures onAuthStateChange in parent picks up the new status
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) throw refreshError;
+
       } catch (error) {
           setMessage(error.message || "Invalid Code");
       } finally {
@@ -328,12 +323,13 @@ const PaymentPlanDashboard = () => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
+          // Whenever auth state changes, verify level again
           const { data: { level } } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
           if (level === 'aal2') {
               setSession(session);
               setIsMfaChecked(true);
           } else {
-              // If session exists but not AAL2, usually handled by AuthPage unless refreshed
+              // If session exists but not AAL2 (e.g. initial login before MFA code), handle in AuthPage
               setSession(null);
               setIsMfaChecked(false);
           }
