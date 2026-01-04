@@ -9,7 +9,7 @@ import {
   LogOut, Lock, Mail, Loader2, Menu, TrendingDown,
   ArrowRightCircle, FileUp, FileInput, Percent,
   Home, DollarSign, GripHorizontal, Activity, Layers,
-  Zap, Clock
+  Zap, Clock, Database, Upload, FileJson
 } from 'lucide-react';
 
 // --- SUPABASE CONFIGURATION ---
@@ -348,6 +348,7 @@ const App = () => {
   const [financeForm, setFinanceForm] = useState({ type: 'emi', date: '', amount: '', notes: '' });
   const [editingTransactionId, setEditingTransactionId] = useState(null);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [showDataModal, setShowDataModal] = useState(false); // For Backup/Restore
   
   // Bank Edit Form
   const [editBankId, setEditBankId] = useState(null);
@@ -764,39 +765,70 @@ const App = () => {
   const handleLogout = async () => { await supabase.auth.signOut(); };
   
   const handleExportCSV = () => {
-    const headers = ["Section", "Details", "Amount", "Date", "Notes/Ref"];
+    // Helper to escape CSV fields
+    const escapeCSV = (field) => {
+        if (field === null || field === undefined) return '';
+        const stringField = String(field);
+        if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n')) {
+            return `"${stringField.replace(/"/g, '""')}"`;
+        }
+        return stringField;
+    };
+
     const rows = [];
-    rows.push(["SUMMARY", "Agreement Value", value, "", ""]);
-    rows.push(["SUMMARY", "Govt Taxes (GST+Stamp+Reg)", totalGst + stampDuty + regCharge, "", ""]);
-    rows.push(["SUMMARY", "Possession Charges", totalPossessionCharges, "", ""]);
-    rows.push(["SUMMARY", "Incidental/Extras", incidentalCosts, "", ""]);
-    rows.push(["SUMMARY", "Total Cost of Ownership", totalCost, "", ""]);
-    rows.push(["SUMMARY", "Total Paid So Far", totalPaid, "", ""]);
+    rows.push(["SUMMARY", "Agreement Value", escapeCSV(value), "", ""]);
+    rows.push(["SUMMARY", "Govt Taxes (GST+Stamp+Reg)", escapeCSV(totalGst + stampDuty + regCharge), "", ""]);
+    rows.push(["SUMMARY", "Possession Charges", escapeCSV(totalPossessionCharges), "", ""]);
+    rows.push(["SUMMARY", "Incidental/Extras", escapeCSV(incidentalCosts), "", ""]);
+    rows.push(["SUMMARY", "Total Cost of Ownership", escapeCSV(totalCost), "", ""]);
+    rows.push(["SUMMARY", "Total Paid So Far", escapeCSV(totalPaid), "", ""]);
     rows.push([]); 
+    
     rows.push(["PAYMENT SCHEDULE", "Stage", "Payable", "Paid Amount", "Payment Date", "Balance"]);
     planData.forEach(p => {
-        rows.push([ "SCHEDULE", p.label, p.totalPayable, p.paidAmount > 0 ? p.paidAmount : "0", p.record.date || "-", p.balance <= 1 ? "0" : p.balance ]);
+        rows.push([ 
+            "SCHEDULE", 
+            escapeCSV(p.label), 
+            escapeCSV(p.totalPayable), 
+            escapeCSV(p.paidAmount > 0 ? p.paidAmount : "0"), 
+            escapeCSV(p.record.date || "-"), 
+            escapeCSV(p.balance <= 1 ? "0" : p.balance) 
+        ]);
     });
     rows.push([]);
+    
     rows.push(["FINANCE HISTORY", "Type", "Amount", "Date", "Notes"]);
     bankTransactions.sort((a,b) => new Date(a.date || a.transaction_date) - new Date(b.date || b.transaction_date)).forEach(tx => {
-        rows.push([ "TRANSACTION", tx.type, tx.amount, formatDate(tx.transaction_date || tx.date), tx.notes || "" ]);
+        rows.push([ 
+            "TRANSACTION", 
+            escapeCSV(tx.type), 
+            escapeCSV(tx.amount), 
+            escapeCSV(formatDate(tx.transaction_date || tx.date)), 
+            escapeCSV(tx.notes || "") 
+        ]);
     });
-    
-    // --- Added Bank Amortization Section ---
+    rows.push([]);
+
+    // Document Checklist
+    rows.push(["DOCUMENT CHECKLIST", "Document Name", "Status"]);
+    docsList.forEach(doc => {
+        rows.push(["DOC", escapeCSV(doc.label), escapeCSV(doc.status)]);
+    });
+    rows.push([]);
+
+    // Bank Amortization
     if (bankEntries.length > 0) {
-        rows.push([]);
         rows.push(["BANK AMORTIZATION", "Date", "Type", "Amount/EMI", "Interest", "Principal", "Balance", "ROI"]);
         bankEntries.forEach(row => {
             rows.push([
                 "AMORTIZATION",
-                formatDate(row.date),
-                row.type === 'disb' ? 'Disbursement' : 'EMI',
-                row.type === 'disb' ? row.amount : (row.emi || row.amount),
-                row.interest || 0,
-                row.principal || 0,
-                row.balance || 0,
-                row.roi || 0
+                escapeCSV(formatDate(row.date)),
+                escapeCSV(row.type === 'disb' ? 'Disbursement' : 'EMI'),
+                escapeCSV(row.type === 'disb' ? row.amount : (row.emi || row.amount)),
+                escapeCSV(row.interest || 0),
+                escapeCSV(row.principal || 0),
+                escapeCSV(row.balance || 0),
+                escapeCSV(row.roi || 0)
             ]);
         });
     }
@@ -805,10 +837,109 @@ const App = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "property_financial_report.csv");
+    link.setAttribute("download", `Property_Report_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // --- DATA BACKUP & RESTORE ---
+  const handleBackup = async () => {
+      if(!session) return;
+      const data = {
+          paymentRecords: paymentRecords,
+          bankTransactions: bankTransactions,
+          bankEntries: bankEntries,
+          carpetArea: carpetArea,
+          docsList: docsList
+      };
+      
+      const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `property_tracker_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setShowDataModal(false);
+  };
+
+  const handleRestore = async (e) => {
+      if(!session || !e.target.files[0]) return;
+      
+      if(!window.confirm("WARNING: This will merge the backup data with your current data. Existing records might be duplicated if not careful. Continue?")) {
+          e.target.value = null;
+          return;
+      }
+
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      
+      reader.onload = async (event) => {
+          try {
+              const data = JSON.parse(event.target.result);
+              const user_id = session.user.id;
+
+              // Restore Payment Records
+              if(data.paymentRecords || data.bankTransactions || data.bankEntries || data.docsList) {
+                  
+                  // 1. Transactions
+                  if(data.bankTransactions && Array.isArray(data.bankTransactions)) {
+                      const cleanTx = data.bankTransactions.map(t => {
+                          const { id, ...rest } = t; // remove old ID
+                          return { ...rest, user_id };
+                      });
+                      if(cleanTx.length > 0) await supabase.from('transactions').insert(cleanTx);
+                  }
+
+                  // 2. Bank Entries
+                  if(data.bankEntries && Array.isArray(data.bankEntries)) {
+                      const cleanBank = data.bankEntries.map(b => {
+                          const { id, ...rest } = b;
+                          return { ...rest, user_id };
+                      });
+                      if(cleanBank.length > 0) await supabase.from('bank_entries').insert(cleanBank);
+                  }
+
+                  // 3. Settings (Docs + Area)
+                  const checklistMap = data.docsList ? data.docsList.reduce((acc, curr) => ({ ...acc, [curr.id]: curr.status }), {}) : {};
+                  await supabase.from('settings').upsert({ 
+                      user_id, 
+                      carpet_area: data.carpetArea || 0,
+                      checklist: checklistMap
+                  });
+
+                  // 4. Payment Records (FIXED: Now properly restoring schedule data)
+                  if (data.paymentRecords) {
+                      // Convert the state object { "1": {...}, "2": {...} } back into database rows
+                      const recordsToInsert = Object.entries(data.paymentRecords).map(([stageId, record]) => ({
+                          user_id,
+                          stage_id: parseInt(stageId),
+                          amount: record.paidAmount,
+                          payment_date: record.date,
+                          receipt_number: record.receipt
+                      }));
+                      
+                      if (recordsToInsert.length > 0) {
+                          // Using upsert to handle potential conflicts if user_id + stage_id is unique, 
+                          // otherwise this will insert new rows (which is safe for a new user transfer)
+                          await supabase.from('payment_records').insert(recordsToInsert);
+                      }
+                  }
+
+                  alert("Data restoration processed successfully! The page will now reload.");
+                  window.location.reload();
+              } else {
+                  alert("Invalid backup file format.");
+              }
+          } catch (err) {
+              console.error(err);
+              alert("Failed to parse backup file.");
+          }
+      };
+      reader.readAsText(file);
+      setShowDataModal(false);
   };
 
   const handlePrint = () => { window.print(); };
@@ -823,17 +954,18 @@ const App = () => {
       {/* Print Styles */}
       <style>{`
         @media print { 
-            @page { margin: 1cm; size: A4 portrait; } 
-            body { background: white !important; -webkit-print-color-adjust: exact; margin: 0; padding: 0; }
+            @page { margin: 1.5cm; size: A4 portrait; } 
+            body { background: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; font-size: 12px; }
             .no-print { display: none !important; } 
-            .print-only { display: block !important; width: 100%; position: absolute; top: 0; left: 0; z-index: 1000; background: white; } 
+            .print-only { display: block !important; width: 100%; position: relative; top: 0; left: 0; z-index: 1000; background: white; } 
             html, body { height: auto; overflow: visible; }
+            .break-before-page { page-break-before: always; }
+            .break-inside-avoid { page-break-inside: avoid; }
         }
         .print-only { display: none; }
       `}</style>
 
       {/* --- PRINT REPORT CONTAINER --- */}
-      {/* ... existing print container ... */}
       <div className="print-only max-w-[210mm] mx-auto p-8 bg-white text-slate-900">
           <div className="border-b-2 border-slate-800 pb-6 mb-8 flex justify-between items-end">
               <div>
@@ -862,6 +994,20 @@ const App = () => {
               <div className="p-4 border border-emerald-200 rounded-lg bg-emerald-50">
                   <div className="text-[10px] uppercase font-bold text-emerald-700">Total Paid</div>
                   <div className="text-lg font-bold text-emerald-800">{formatCurrency(totalPaid)}</div>
+              </div>
+          </div>
+
+          {/* Funding Mix Visual Bar */}
+          <div className="mb-8">
+              <h3 className="text-sm font-bold uppercase text-slate-500 mb-2">Funding Mix</h3>
+              <div className="w-full h-4 bg-slate-100 rounded-full overflow-hidden flex border border-slate-200">
+                  <div style={{ width: `${(financeSummary.totalDisbursed / totalCost) * 100}%` }} className="bg-indigo-600 h-full"></div>
+                  <div style={{ width: `${(financeSummary.totalOwn / totalCost) * 100}%` }} className="bg-emerald-500 h-full"></div>
+              </div>
+              <div className="flex justify-between text-[10px] mt-1 text-slate-500 font-medium">
+                  <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-indigo-600"></div> Bank: {formatCurrency(financeSummary.totalDisbursed)}</div>
+                  <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Own: {formatCurrency(financeSummary.totalOwn)}</div>
+                  <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-200"></div> Balance: {formatCurrency(financeSummary.balanceDue)}</div>
               </div>
           </div>
 
@@ -929,6 +1075,7 @@ const App = () => {
           {bankEntries.length > 0 && (
              <div className="mt-8">
                  <h2 className="text-lg font-bold border-l-4 border-indigo-600 pl-3 mb-4 text-slate-800 break-before-page">Bank Amortization Schedule</h2>
+
                  <div className="grid grid-cols-4 gap-4 mb-4 text-xs">
                     <div className="p-2 border border-slate-200 rounded bg-slate-50">
                         <span className="block text-slate-400 uppercase font-bold text-[10px]">Current EMI</span>
@@ -991,6 +1138,7 @@ const App = () => {
              </div>
              <DesktopNav activeTab={activeTab} setActiveTab={setActiveTab} />
              <div className="flex gap-2">
+                <button onClick={() => setShowDataModal(true)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors" title="Data Backup/Restore"><Database className="w-5 h-5" /></button>
                 <button onClick={handleExportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors" title="Export CSV"><Download className="w-5 h-5" /></button>
                 <button onClick={handlePrint} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors" title="Print"><Printer className="w-5 h-5" /></button>
                 <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"><LogOut className="w-5 h-5" /></button>
@@ -1436,6 +1584,35 @@ const App = () => {
 
       {/* --- DRAWERS / MODALS --- */}
       
+      {/* Data Management Drawer */}
+      <BottomDrawer isOpen={showDataModal} onClose={() => setShowDataModal(false)} title="Data Management">
+         <div className="space-y-6">
+             <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+                 <h4 className="font-bold text-sm text-amber-800 flex items-center gap-2 mb-1"><AlertCircle className="w-4 h-4" /> Important</h4>
+                 <p className="text-xs text-amber-700">Backup your data regularly. Restoring data will merge with existing records.</p>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-4">
+                 <button onClick={handleBackup} className="flex flex-col items-center justify-center p-6 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 transition-colors group">
+                     <div className="p-3 bg-white rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                         <Download className="w-6 h-6 text-indigo-600" />
+                     </div>
+                     <span className="font-bold text-sm text-slate-700">Backup Data</span>
+                     <span className="text-[10px] text-slate-400 mt-1">Download JSON</span>
+                 </button>
+
+                 <label className="flex flex-col items-center justify-center p-6 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 transition-colors group cursor-pointer relative">
+                     <input type="file" accept=".json" className="hidden" onChange={handleRestore} />
+                     <div className="p-3 bg-white rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+                         <Upload className="w-6 h-6 text-emerald-600" />
+                     </div>
+                     <span className="font-bold text-sm text-slate-700">Restore Data</span>
+                     <span className="text-[10px] text-slate-400 mt-1">Upload JSON</span>
+                 </label>
+             </div>
+         </div>
+      </BottomDrawer>
+
       {/* Payment Edit Drawer */}
       <BottomDrawer isOpen={!!editingStage} onClose={() => setEditingStage(null)} title="Update Payment">
          <div className="space-y-4">
